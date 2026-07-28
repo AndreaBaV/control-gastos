@@ -3,7 +3,6 @@ import 'package:control_gastos/models/category_model.dart';
 import 'package:control_gastos/models/transaction_model.dart';
 import 'package:control_gastos/services/categorization_service.dart';
 import 'package:control_gastos/services/transaction_voice_parser.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -11,19 +10,19 @@ void main() {
     CategoryModel(
       id: 'cat_food',
       name: 'Comida',
-      iconCodePoint: Icons.restaurant.codePoint,
+      iconKey: 'restaurant',
       sortOrder: 0,
     ),
     CategoryModel(
       id: 'cat_transport',
       name: 'Transporte',
-      iconCodePoint: Icons.directions_car.codePoint,
+      iconKey: 'directions_car',
       sortOrder: 1,
     ),
     CategoryModel(
       id: 'cat_other',
       name: 'Otros',
-      iconCodePoint: Icons.category.codePoint,
+      iconKey: 'category',
       sortOrder: 6,
     ),
   ];

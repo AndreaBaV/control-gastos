@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -68,7 +67,7 @@ class AppDatabase {
 CREATE TABLE categories (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  icon_code INTEGER NOT NULL,
+  icon_code TEXT NOT NULL,
   sort_order INTEGER NOT NULL,
   kind TEXT NOT NULL DEFAULT 'gasto'
 )''');
@@ -153,20 +152,20 @@ SELECT id, 'gasto', amount_cents, note, category_id, ?, created_at FROM expenses
   }
 
   Future<void> _seedCategories(Database db) async {
-    final defaults = <(String id, String name, IconData icon, int order)>[
-      ('cat_food', 'Comida', Icons.restaurant, 0),
-      ('cat_transport', 'Transporte', Icons.directions_car, 1),
-      ('cat_home', 'Casa', Icons.home, 2),
-      ('cat_fun', 'Ocio', Icons.movie, 3),
-      ('cat_health', 'Salud', Icons.favorite, 4),
-      ('cat_shopping', 'Compras', Icons.shopping_bag, 5),
-      ('cat_other', 'Otros', Icons.category, 6),
+    final defaults = <(String id, String name, String iconKey, int order)>[
+      ('cat_food', 'Comida', 'restaurant', 0),
+      ('cat_transport', 'Transporte', 'directions_car', 1),
+      ('cat_home', 'Casa', 'home', 2),
+      ('cat_fun', 'Ocio', 'movie', 3),
+      ('cat_health', 'Salud', 'favorite', 4),
+      ('cat_shopping', 'Compras', 'shopping_bag', 5),
+      ('cat_other', 'Otros', 'category', 6),
     ];
     for (final row in defaults) {
       await db.insert('categories', {
         'id': row.$1,
         'name': row.$2,
-        'icon_code': row.$3.codePoint,
+        'icon_code': row.$3,
         'sort_order': row.$4,
         'kind': categoryKindToString(CategoryKind.gasto),
       });
@@ -175,10 +174,10 @@ SELECT id, 'gasto', amount_cents, note, category_id, ?, created_at FROM expenses
   }
 
   Future<void> _seedIncomeCategories(Database db) async {
-    final defaults = <(String id, String name, IconData icon, int order)>[
-      ('cat_income_salary', 'Sueldo', Icons.work_outline, 100),
-      ('cat_income_freelance', 'Freelance', Icons.laptop_mac, 101),
-      ('cat_income_other', 'Otro ingreso', Icons.savings_outlined, 102),
+    final defaults = <(String id, String name, String iconKey, int order)>[
+      ('cat_income_salary', 'Sueldo', 'work_outline', 100),
+      ('cat_income_freelance', 'Freelance', 'laptop_mac', 101),
+      ('cat_income_other', 'Otro ingreso', 'savings_outlined', 102),
     ];
     for (final row in defaults) {
       await db.insert(
@@ -186,7 +185,7 @@ SELECT id, 'gasto', amount_cents, note, category_id, ?, created_at FROM expenses
         {
           'id': row.$1,
           'name': row.$2,
-          'icon_code': row.$3.codePoint,
+          'icon_code': row.$3,
           'sort_order': row.$4,
           'kind': categoryKindToString(CategoryKind.ingreso),
         },

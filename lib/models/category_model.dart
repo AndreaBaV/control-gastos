@@ -20,21 +20,31 @@ class CategoryModel {
   const CategoryModel({
     required this.id,
     required this.name,
-    required this.iconCodePoint,
+    required this.iconKey,
     required this.sortOrder,
     this.kind = CategoryKind.gasto,
   });
 
   final String id;
   final String name;
-  final int iconCodePoint;
+  final String iconKey;
   final int sortOrder;
   final CategoryKind kind;
 
-  // El código se guarda como int en SQLite y se reconstruye en tiempo de
-  // ejecución; el tree-shaking de iconos de Flutter no puede verificarlo.
-  // ignore: non_const_argument_for_const_parameter
-  IconData get icon => IconData(iconCodePoint, fontFamily: 'MaterialIcons');
+  // Cada rama devuelve una constante Icons.xxx literal (no reconstruida
+  // desde un valor guardado), para que el tree-shaking de iconos funcione.
+  IconData get icon => switch (iconKey) {
+        'restaurant' => Icons.restaurant,
+        'directions_car' => Icons.directions_car,
+        'home' => Icons.home,
+        'movie' => Icons.movie,
+        'favorite' => Icons.favorite,
+        'shopping_bag' => Icons.shopping_bag,
+        'work_outline' => Icons.work_outline,
+        'laptop_mac' => Icons.laptop_mac,
+        'savings_outlined' => Icons.savings_outlined,
+        _ => Icons.category,
+      };
 
   bool appliesTo(TransactionType type) {
     if (kind == CategoryKind.ambas) return true;
@@ -48,7 +58,7 @@ class CategoryModel {
     return CategoryModel(
       id: map['id']! as String,
       name: map['name']! as String,
-      iconCodePoint: map['icon_code']! as int,
+      iconKey: map['icon_code']! as String,
       sortOrder: map['sort_order']! as int,
       kind: categoryKindFromString(map['kind'] as String? ?? 'gasto'),
     );
@@ -57,7 +67,7 @@ class CategoryModel {
   Map<String, Object?> toMap() => {
         'id': id,
         'name': name,
-        'icon_code': iconCodePoint,
+        'icon_code': iconKey,
         'sort_order': sortOrder,
         'kind': categoryKindToString(kind),
       };
