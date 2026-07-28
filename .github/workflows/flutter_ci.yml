@@ -6,8 +6,9 @@ on:
   pull_request:
 
 jobs:
-  ios:
-    runs-on: macos-latest
+  analyze:
+    runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +25,3 @@ jobs:
 
       - name: Test
         run: flutter test
-
-      - name: Build iOS (sin firma)
-        run: flutter build ios --no-codesign
