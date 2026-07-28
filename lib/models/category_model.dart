@@ -31,6 +31,9 @@ class CategoryModel {
   final int sortOrder;
   final CategoryKind kind;
 
+  // El código se guarda como int en SQLite y se reconstruye en tiempo de
+  // ejecución; el tree-shaking de iconos de Flutter no puede verificarlo.
+  // ignore: non_const_argument_for_const_parameter
   IconData get icon => IconData(iconCodePoint, fontFamily: 'MaterialIcons');
 
   bool appliesTo(TransactionType type) {
