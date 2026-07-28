@@ -1,0 +1,145 @@
+name: Mobile Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - mobile-v*
+
+concurrency:
+  group: mobile-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUNDLE_ID: com.andyb.controlgastos.controlGastos
+
+jobs:
+  ios:
+    name: iOS TestFlight
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify iOS signing secrets
+        id: signing
+        env:
+          IOS_CERT: ${{ secrets.IOS_DIST_CERTIFICATE_BASE64 }}
+          IOS_PROFILE: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$IOS_CERT" ] || [ -z "$IOS_PROFILE" ] || [ -z "$IOS_CERT_PASSWORD" ] || \
+             [ -z "$IOS_PROFILE_NAME" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::error::Secrets iOS incompletos. Requeridos: IOS_DIST_CERTIFICATE_BASE64, IOS_DIST_CERTIFICATE_PASSWORD, IOS_PROVISION_PROFILE_BASE64, IOS_PROVISION_PROFILE_NAME, APPLE_TEAM_ID."
+            exit 1
+          fi
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Import Apple Distribution certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.IOS_DIST_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_DIST_CERTIFICATE_PASSWORD }}
+          keychain: control-gastos-build
+
+      - name: Install provisioning profile and signing xcconfig
+        env:
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+          PP_PATH="$RUNNER_TEMP/build_pp.mobileprovision"
+          tr -d ' \n\r' <<< "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
+
+          PP_UUID=$(security cms -D -i "$PP_PATH" | plutil -extract UUID raw -)
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PP_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/${PP_UUID}.mobileprovision"
+
+          SIGNING="ios/Flutter/Signing.xcconfig"
+          {
+            echo "DEVELOPMENT_TEAM=${APPLE_TEAM_ID}"
+            echo "CODE_SIGN_STYLE=Manual"
+            echo "PROVISIONING_PROFILE_SPECIFIER=${IOS_PROVISION_PROFILE_NAME}"
+            echo "CODE_SIGN_IDENTITY=Apple Distribution"
+            echo "CODE_SIGN_IDENTITY[sdk=iphoneos*]=Apple Distribution"
+          } > "$SIGNING"
+
+          echo "Perfil instalado: ${IOS_PROVISION_PROFILE_NAME} (${PP_UUID})"
+          security find-identity -v -p codesigning
+          if ! security find-identity -v -p codesigning | grep -qE "Apple Distribution|iPhone Distribution"; then
+            echo "::error::No hay certificado de distribucion valido. Regenera el .p12 con certificado Apple Distribution + clave privada."
+            exit 1
+          fi
+
+      - name: Prepare ExportOptions.plist
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_PROVISION_PROFILE_NAME: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+        run: |
+          PLIST="ios/ExportOptions.plist"
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:${{ env.BUNDLE_ID }} $IOS_PROVISION_PROFILE_NAME" "$PLIST"
+
+      - name: Build IPA
+        env:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.IOS_PROVISION_PROFILE_NAME }}
+        run: |
+          flutter build ipa --release --export-options-plist=ios/ExportOptions.plist
+          IPA_DIR="build/ios/ipa"
+          ls -la "$IPA_DIR"
+          if [ ! -f "$IPA_DIR/AppStoreInfo.plist" ]; then
+            echo "::error::No se genero AppStoreInfo.plist. Verifica generateAppStoreInformation en ios/ExportOptions.plist."
+            exit 1
+          fi
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-gastos-ios-ipa
+          path: |
+            build/ios/ipa/*.ipa
+            build/ios/ipa/AppStoreInfo.plist
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Resolve IPA for TestFlight
+        id: ipa
+        run: |
+          set -euo pipefail
+          IPA_DIR="${{ github.workspace }}/build/ios/ipa"
+          IPA=$(find "$IPA_DIR" -maxdepth 1 -name '*.ipa' -print -quit)
+          if [ -z "$IPA" ]; then
+            echo "::error::No se encontró .ipa en $IPA_DIR"
+            exit 1
+          fi
+          echo "path=$IPA" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v5
+        with:
+          app-path: ${{ steps.ipa.outputs.path }}
+          issuer-id: ${{ secrets.APPLE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPLE_API_KEY_ID }}
+          api-private-key: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          uses-non-exempt-encryption: 'false'
+          wait-for-processing: 'false'
