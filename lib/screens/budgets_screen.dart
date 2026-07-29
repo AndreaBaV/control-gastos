@@ -18,18 +18,12 @@ class BudgetsScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final catBudgets = c.categories.where((cat) => cat.appliesTo(TransactionType.gasto)).toList();
 
-    return SafeArea(
+    return Scaffold(
+      appBar: AppBar(title: const Text('Presupuesto')),
+      body: SafeArea(
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         children: [
-          Text(
-            'Presupuestos',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 8),
           Text(
             'Define límites mensuales por categoría y un tope global opcional. Los datos viven solo en tu dispositivo.',
             style: theme.textTheme.bodyMedium?.copyWith(
@@ -60,6 +54,7 @@ class BudgetsScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

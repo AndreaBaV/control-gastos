@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 import '../models/account_model.dart';
 import '../models/budget_model.dart';
 import '../models/category_model.dart';
+import '../models/goal_contribution_model.dart';
+import '../models/goal_model.dart';
 import '../models/transaction_model.dart';
 
 const _globalBudgetCategoryId = '__global__';
@@ -22,6 +24,10 @@ String get defaultAccountId => _defaultAccountId;
 
 class AccountHasTransactionsException implements Exception {
   const AccountHasTransactionsException();
+}
+
+class GoalHasContributionsException implements Exception {
+  const GoalHasContributionsException();
 }
 
 class AppDatabase {
@@ -48,9 +54,10 @@ class AppDatabase {
     final path = p.join(dir.path, 'control_gastos.db');
     return openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await _createV2Schema(db);
+        await _createGoalsSchema(db);
         await _seedCategories(db);
         await _seedDefaultAccount(db);
       },
@@ -58,8 +65,32 @@ class AppDatabase {
         if (oldVersion < 2) {
           await _migrateV1ToV2(db);
         }
+        if (oldVersion < 3) {
+          await _createGoalsSchema(db);
+        }
       },
     );
+  }
+
+  Future<void> _createGoalsSchema(Database db) async {
+    await db.execute('''
+CREATE TABLE goals (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  target_cents INTEGER NOT NULL,
+  target_date INTEGER,
+  sort_order INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+)''');
+    await db.execute('''
+CREATE TABLE goal_contributions (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL,
+  note TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (goal_id) REFERENCES goals (id)
+)''');
   }
 
   Future<void> _createV2Schema(Database db) async {
@@ -425,5 +456,87 @@ GROUP BY category_id''',
         whereArgs: [categoryId, yearMonth],
       );
     }
+  }
+
+  // ---- Goals ----
+
+  Future<List<GoalModel>> getGoals() async {
+    final db = await database;
+    final rows = await db.query('goals', orderBy: 'sort_order ASC, created_at ASC');
+    return rows.map(GoalModel.fromMap).toList();
+  }
+
+  Future<String> insertGoal({
+    required String name,
+    required int targetCents,
+    DateTime? targetDate,
+  }) async {
+    final db = await database;
+    final rows = await db.query('goals');
+    final id = _uuid.v4();
+    await db.insert('goals', {
+      'id': id,
+      'name': name.trim(),
+      'target_cents': targetCents,
+      'target_date': targetDate?.millisecondsSinceEpoch,
+      'sort_order': rows.length,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    return id;
+  }
+
+  Future<void> deleteGoal(String id) async {
+    final db = await database;
+    final refs = await db.query(
+      'goal_contributions',
+      where: 'goal_id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (refs.isNotEmpty) {
+      throw const GoalHasContributionsException();
+    }
+    await db.delete('goals', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<GoalContributionModel>> contributionsForGoal(String goalId) async {
+    final db = await database;
+    final rows = await db.query(
+      'goal_contributions',
+      where: 'goal_id = ?',
+      whereArgs: [goalId],
+      orderBy: 'created_at DESC',
+    );
+    return rows.map(GoalContributionModel.fromMap).toList();
+  }
+
+  Future<int> sumContributionsForGoal(String goalId) async {
+    final db = await database;
+    final res = await db.rawQuery(
+      'SELECT COALESCE(SUM(amount_cents), 0) AS t FROM goal_contributions WHERE goal_id = ?',
+      [goalId],
+    );
+    return (res.first['t'] as int?) ?? 0;
+  }
+
+  Future<void> insertContribution({
+    required String goalId,
+    required int amountCents,
+    required String note,
+    DateTime? createdAt,
+  }) async {
+    final db = await database;
+    await db.insert('goal_contributions', {
+      'id': _uuid.v4(),
+      'goal_id': goalId,
+      'amount_cents': amountCents,
+      'note': note.trim(),
+      'created_at': (createdAt ?? DateTime.now()).millisecondsSinceEpoch,
+    });
+  }
+
+  Future<void> deleteContribution(String id) async {
+    final db = await database;
+    await db.delete('goal_contributions', where: 'id = ?', whereArgs: [id]);
   }
 }

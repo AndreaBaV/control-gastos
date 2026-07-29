@@ -4,6 +4,8 @@ import '../data/app_database.dart';
 import '../models/account_model.dart';
 import '../models/budget_model.dart';
 import '../models/category_model.dart';
+import '../models/goal_contribution_model.dart';
+import '../models/goal_model.dart';
 import '../models/transaction_model.dart';
 
 class AppController extends ChangeNotifier {
@@ -17,12 +19,31 @@ class AppController extends ChangeNotifier {
   List<AccountModel> accounts = [];
   List<TransactionModel> transactions = [];
   List<BudgetModel> budgets = [];
+  List<GoalModel> goals = [];
+  Map<String, int> goalProgressCents = {};
   int monthExpenseCents = 0;
   int monthIncomeCents = 0;
   Map<String, int> spentByCategory = {};
 
   static String _yearMonth(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
+
+  /// Resumen de gasto/ingreso de los últimos [months] meses (incluye el
+  /// actual), del más antiguo al más reciente. No depende de [yearMonth].
+  Future<List<({String yearMonth, int expenseCents, int incomeCents})>> lastMonthsSummary(
+    int months,
+  ) async {
+    final now = DateTime.now();
+    final out = <({String yearMonth, int expenseCents, int incomeCents})>[];
+    for (var i = months - 1; i >= 0; i--) {
+      final d = DateTime(now.year, now.month - i, 1);
+      final ym = _yearMonth(d);
+      final expense = await _db.sumForMonth(ym, TransactionType.gasto);
+      final income = await _db.sumForMonth(ym, TransactionType.ingreso);
+      out.add((yearMonth: ym, expenseCents: expense, incomeCents: income));
+    }
+    return out;
+  }
 
   Future<void> init() async {
     await _db.database;
@@ -38,6 +59,12 @@ class AppController extends ChangeNotifier {
     monthExpenseCents = await _db.sumForMonth(yearMonth, TransactionType.gasto);
     monthIncomeCents = await _db.sumForMonth(yearMonth, TransactionType.ingreso);
     spentByCategory = await _db.sumByCategoryForMonth(yearMonth);
+    goals = await _db.getGoals();
+    final progress = <String, int>{};
+    for (final g in goals) {
+      progress[g.id] = await _db.sumContributionsForGoal(g.id);
+    }
+    goalProgressCents = progress;
     notifyListeners();
   }
 
@@ -137,5 +164,43 @@ class AppController extends ChangeNotifier {
     } on AccountHasTransactionsException {
       return false;
     }
+  }
+
+  Future<String> addGoal({
+    required String name,
+    required int targetCents,
+    DateTime? targetDate,
+  }) async {
+    final id = await _db.insertGoal(name: name, targetCents: targetCents, targetDate: targetDate);
+    await refresh();
+    return id;
+  }
+
+  /// Devuelve false si la meta tiene aportaciones y no se pudo borrar.
+  Future<bool> deleteGoal(String id) async {
+    try {
+      await _db.deleteGoal(id);
+      await refresh();
+      return true;
+    } on GoalHasContributionsException {
+      return false;
+    }
+  }
+
+  Future<List<GoalContributionModel>> contributionsForGoal(String goalId) =>
+      _db.contributionsForGoal(goalId);
+
+  Future<void> addContribution({
+    required String goalId,
+    required int amountCents,
+    required String note,
+  }) async {
+    await _db.insertContribution(goalId: goalId, amountCents: amountCents, note: note);
+    await refresh();
+  }
+
+  Future<void> deleteContribution(String id) async {
+    await _db.deleteContribution(id);
+    await refresh();
   }
 }

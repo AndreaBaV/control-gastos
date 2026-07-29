@@ -5,9 +5,8 @@ import '../state/app_controller.dart';
 import '../util/money_format.dart';
 import 'accounts_screen.dart';
 import 'add_movement_screen.dart';
-import 'budgets_screen.dart';
 import 'home_screen.dart';
-import 'insights_screen.dart';
+import 'more_screen.dart';
 
 class ShellScreen extends StatefulWidget {
   const ShellScreen({super.key, this.initialVoiceText});
@@ -29,8 +28,7 @@ class _ShellScreenState extends State<ShellScreen> {
       0 => const HomeScreen(),
       1 => AddMovementScreen(initialText: widget.initialVoiceText),
       2 => const AccountsScreen(),
-      3 => const BudgetsScreen(),
-      _ => const InsightsScreen(),
+      _ => const MoreScreen(),
     };
     return Scaffold(
       body: GestureDetector(
@@ -58,14 +56,9 @@ class _ShellScreenState extends State<ShellScreen> {
             label: 'Cuentas',
           ),
           NavigationDestination(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            selectedIcon: Icon(Icons.account_balance_wallet),
-            label: 'Presupuesto',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.spa_outlined),
-            selectedIcon: Icon(Icons.spa_rounded),
-            label: 'Ahorro',
+            icon: Icon(Icons.more_horiz_outlined),
+            selectedIcon: Icon(Icons.more_horiz),
+            label: 'Más',
           ),
         ],
       ),
