@@ -5,7 +5,6 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../models/category_model.dart';
 import '../models/transaction_model.dart';
-import '../services/categorization_service.dart';
 import '../services/transaction_voice_parser.dart';
 import '../state/app_controller.dart';
 import '../util/money_format.dart';
@@ -52,15 +51,10 @@ class _AddMovementScreenState extends State<AddMovementScreen> {
   }
 
   void _onTextChanged() {
-    final controller = context.read<AppController>();
-    final parsed = TransactionVoiceParser.parse(_textCtrl.text, accounts: controller.accounts);
+    final parsed = _parsed(context.read<AppController>());
 
-    final cats = controller.categories.where((c) => c.appliesTo(_type)).toList();
-    if (cats.isNotEmpty) {
-      final suggested = CategorizationService.suggestCategoryId(_textCtrl.text, cats);
-      if (suggested != _categoryId && cats.any((c) => c.id == suggested)) {
-        setState(() => _categoryId = suggested);
-      }
+    if (parsed.categoryId != null && parsed.categoryId != _categoryId) {
+      setState(() => _categoryId = parsed.categoryId);
     }
 
     if (parsed.accountId != null && parsed.accountId != _accountId) {
@@ -97,8 +91,11 @@ class _AddMovementScreenState extends State<AddMovementScreen> {
     );
   }
 
-  ParsedVoiceTransaction _parsed(AppController controller) =>
-      TransactionVoiceParser.parse(_textCtrl.text, accounts: controller.accounts);
+  ParsedVoiceTransaction _parsed(AppController controller) => TransactionVoiceParser.parse(
+        _textCtrl.text,
+        accounts: controller.accounts,
+        categories: controller.categories.where((c) => c.appliesTo(_type)).toList(),
+      );
 
   int? _resolveAmountCents(AppController controller) {
     final override = _amountOverrideCtrl.text.trim().replaceAll(',', '.');

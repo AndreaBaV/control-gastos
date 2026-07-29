@@ -77,7 +77,14 @@ void main() {
     expect(p.amountCents, 2500);
     expect(p.type, TransactionType.gasto);
     expect(p.accountId, 'acc_azteca');
-    expect(p.note.toLowerCase(), contains('gillette'));
+    expect(p.note, contains('Gillette'));
+  });
+
+  test('conserva acentos y mayúsculas del texto original en la nota', () {
+    final p = TransactionVoiceParser.parse('Compra un café con leche de 45 pesos en Starbucks');
+    expect(p.amountCents, 4500);
+    expect(p.note, contains('café'));
+    expect(p.note, contains('Starbucks'));
   });
 
   test('detecta ingreso por palabra clave', () {

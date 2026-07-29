@@ -1,5 +1,7 @@
 import '../models/account_model.dart';
+import '../models/category_model.dart';
 import '../models/transaction_model.dart';
+import 'categorization_service.dart';
 
 class ParsedVoiceTransaction {
   const ParsedVoiceTransaction({
@@ -8,6 +10,7 @@ class ParsedVoiceTransaction {
     this.amountCents,
     this.note = '',
     this.accountId,
+    this.categoryId,
   });
 
   final String rawText;
@@ -15,6 +18,7 @@ class ParsedVoiceTransaction {
   final int? amountCents;
   final String note;
   final String? accountId;
+  final String? categoryId;
 }
 
 class TransactionVoiceParser {
@@ -38,17 +42,41 @@ class TransactionVoiceParser {
     'sueldo', 'nomina', 'recibi', 'abono', 'abone',
   ];
 
+  // Palabras de relleno que no aportan al concepto/nota: verbos de comando,
+  // artículos, preposiciones y términos genéricos de cuenta/tarjeta (la
+  // cuenta ya se identifica por separado en accountId).
+  static const _stopWords = {
+    'oye', 'hey', 'ok', 'okay',
+    'registra', 'registrar', 'anota', 'anotar', 'agrega', 'agregar',
+    'guarda', 'guardar', 'apunta', 'apuntar', 'pon', 'poner', 'favor',
+    'compra', 'compre', 'comprar', 'compras', 'gasto', 'gastos',
+    'pago', 'pagos', 'pague', 'pagar',
+    'un', 'una', 'unos', 'unas', 'el', 'la', 'los', 'las', 'lo',
+    'de', 'del', 'en', 'para', 'por', 'con', 'a', 'al', 'y', 'que',
+    'tarjeta', 'tarjetas', 'cuenta', 'cuentas',
+    'debito', 'credito', 'banco', 'efectivo',
+  };
+
+  static final _wordPattern = RegExp(r'\S+');
+  static final _edgePunctuation = RegExp(r'^[,.;:!?()"“”«»]+|[,.;:!?()"“”«»]+$');
+
   static ParsedVoiceTransaction parse(
     String raw, {
     List<AccountModel> accounts = const [],
+    List<CategoryModel> categories = const [],
   }) {
     final trimmedRaw = raw.trim();
     if (trimmedRaw.isEmpty) {
       return ParsedVoiceTransaction(rawText: raw, type: TransactionType.gasto);
     }
 
-    final withoutWake = trimmedRaw.replaceFirst(_wakePrefix, '');
-    var remainder = _stripAccents(withoutWake.toLowerCase());
+    // `display` conserva mayúsculas y acentos tal cual se dictaron (para la
+    // nota final); `remainder` es su versión normalizada (minúsculas, sin
+    // acentos) usada solo para detectar palabras clave/importe/cuenta. Ambas
+    // cadenas se mantienen del mismo largo, así que cada rango encontrado en
+    // `remainder` se puede aplicar tal cual sobre `display`.
+    var display = _withoutWakePrefix(trimmedRaw);
+    var remainder = _stripAccents(display.toLowerCase());
 
     var type = TransactionType.gasto;
     for (final kw in _incomeKeywords) {
@@ -56,8 +84,15 @@ class TransactionVoiceParser {
       if (idx != -1) {
         type = TransactionType.ingreso;
         remainder = remainder.replaceRange(idx, idx + kw.length, ' ');
+        display = display.replaceRange(idx, idx + kw.length, ' ');
         break;
       }
+    }
+
+    String? categoryId;
+    final categoriesForType = categories.where((c) => c.appliesTo(type)).toList();
+    if (categoriesForType.isNotEmpty) {
+      categoryId = CategorizationService.suggestCategoryId(display, categoriesForType);
     }
 
     int? cents;
@@ -65,6 +100,7 @@ class TransactionVoiceParser {
     if (m1 != null) {
       cents = _toCents(m1.group(1)!);
       remainder = remainder.replaceRange(m1.start, m1.end, ' ');
+      display = display.replaceRange(m1.start, m1.end, ' ');
     }
     cents ??= () {
       final m2 = _verbAmount.firstMatch(remainder);
@@ -72,6 +108,7 @@ class TransactionVoiceParser {
         final c = _toCents(m2.group(1)!);
         if (c != null) {
           remainder = remainder.replaceRange(m2.start, m2.end, ' ');
+          display = display.replaceRange(m2.start, m2.end, ' ');
           return c;
         }
       }
@@ -83,6 +120,7 @@ class TransactionVoiceParser {
         final c = _toCents(m3.group(1)!);
         if (c != null && c > 0) {
           remainder = remainder.replaceRange(m3.start, m3.end, ' ');
+          display = display.replaceRange(m3.start, m3.end, ' ');
           return c;
         }
       }
@@ -95,24 +133,43 @@ class TransactionVoiceParser {
       if (match != null) {
         accountId = match.account.id;
         for (final phrase in match.phrasesToRemove) {
-          remainder = remainder.replaceAll(phrase, ' ');
+          final idx = remainder.indexOf(phrase);
+          if (idx == -1) continue;
+          final end = idx + phrase.length;
+          remainder = remainder.replaceRange(idx, end, ' ');
+          display = display.replaceRange(idx, end, ' ');
         }
       }
     }
 
-    final note = remainder
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .replaceAll(RegExp(r'^(en|de|para|por|con|a)\s+'), '')
-        .trim();
+    final note = _keyConcept(display: display, remainder: remainder);
 
     return ParsedVoiceTransaction(
       rawText: raw,
       type: type,
       amountCents: cents,
-      note: note.isEmpty ? _stripAccents(withoutWake.toLowerCase()).trim() : note,
+      note: note.isEmpty ? _withoutWakePrefix(trimmedRaw).trim() : note,
       accountId: accountId,
+      categoryId: categoryId,
     );
   }
+
+  /// Reconstruye solo las palabras "clave" del texto restante: recorre
+  /// `remainder` palabra por palabra, descarta rellenos (stopwords) y
+  /// fragmentos vacíos, y toma cada palabra sobreviviente de `display`
+  /// (mismos índices) para conservar su mayúscula/acento original.
+  static String _keyConcept({required String display, required String remainder}) {
+    final kept = <String>[];
+    for (final m in _wordPattern.allMatches(remainder)) {
+      final normalizedWord = m.group(0)!.replaceAll(_edgePunctuation, '');
+      if (normalizedWord.isEmpty || _stopWords.contains(normalizedWord)) continue;
+      final originalWord = display.substring(m.start, m.end).replaceAll(_edgePunctuation, '');
+      if (originalWord.isNotEmpty) kept.add(originalWord);
+    }
+    return kept.join(' ');
+  }
+
+  static String _withoutWakePrefix(String text) => text.replaceFirst(_wakePrefix, '');
 
   static ({AccountModel account, List<String> phrasesToRemove})? _detectAccount(
     String normalizedText,
