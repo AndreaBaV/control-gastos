@@ -290,7 +290,10 @@ class _AccountFormSheetState extends State<_AccountFormSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isCredit = _kind == AccountKind.credito;
-    return Padding(
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
         left: 20,
@@ -369,6 +372,7 @@ class _AccountFormSheetState extends State<_AccountFormSheet> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

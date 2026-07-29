@@ -33,7 +33,11 @@ class _ShellScreenState extends State<ShellScreen> {
       _ => const InsightsScreen(),
     };
     return Scaffold(
-      body: page,
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        behavior: HitTestBehavior.opaque,
+        child: page,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
